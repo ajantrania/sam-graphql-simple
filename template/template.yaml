@@ -1,0 +1,138 @@
+AWSTemplateFormatVersion: 2010-09-09
+Transform: AWS::Serverless-2016-10-31
+Description: GraphQL Example Stack
+Resources:
+  LambdaResolver:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub ${AWS::StackName}-LambdaResolver
+      # Description: !Sub
+      #   - Stack ${StackTagName} Environment ${EnvironmentTagName} Function ${ResourceName}
+      #   - ResourceName: LambdaResolver
+      CodeUri: src/LambdaResolver
+      Handler: index.handler
+      Runtime: nodejs8.10
+      MemorySize: 3008
+      Timeout: 30
+      Tracing: Active
+      Policies:
+        - AWSXrayWriteOnlyAccess
+    DependsOn: DeploymentMarkerTagIAPO39
+  Graphql:
+    Type: AWS::AppSync::GraphQLApi
+    Properties:
+      Name: Graphql
+      # Name: !Sub
+      #   - ${ResourceName} From Stack ${StackTagName} Environment ${EnvironmentTagName}
+      #   - ResourceName: Graphql
+      AuthenticationType: API_KEY
+      LogConfig:
+        FieldLogLevel: ERROR
+        CloudWatchLogsRoleArn: !GetAtt GraphqlLogsRole.Arn
+    DependsOn: DeploymentMarkerTagIAPO39
+  GraphqlSchema:
+    Type: AWS::AppSync::GraphQLSchema
+    Properties:
+      ApiId: !GetAtt Graphql.ApiId
+      DefinitionS3Location: Graphql/schema.graphql
+    DependsOn: DeploymentMarkerTagIAPO39
+  GraphqlLogsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          Effect: Allow
+          Principal:
+            Service: appsync.amazonaws.com
+          Action: sts:AssumeRole
+      RoleName: !Sub ${AWS::StackName}-Graphql-logs
+      Policies:
+        - PolicyName: Log
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource:
+                  - !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/appsync/apis/*
+                  - !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/appsync/apis/*:log-stream:*
+    DependsOn: DeploymentMarkerTagIAPO39
+  GraphqlQuerygetPostResolver:
+    Type: AWS::AppSync::Resolver
+    Properties:
+      TypeName: Query
+      DataSourceName: !GetAtt GraphqlToLambdaResolverDataSource.Name
+      RequestMappingTemplateS3Location: Graphql/Query-getPost-request.vm
+      ResponseMappingTemplateS3Location: Graphql/Query-getPost-response.vm
+      ApiId: !GetAtt Graphql.ApiId
+      FieldName: getPost
+    DependsOn: [GraphqlSchema, DeploymentMarkerTagIAPO39]
+  GraphqlToLambdaResolverDataSource:
+    Type: AWS::AppSync::DataSource
+    Properties:
+      Type: AWS_LAMBDA
+      ServiceRoleArn: !GetAtt GraphqlToLambdaResolverAccessRole.Arn
+      ApiId: !GetAtt Graphql.ApiId
+      Name: LambdaResolver
+      LambdaConfig:
+        LambdaFunctionArn: !GetAtt LambdaResolver.Arn
+    DependsOn: DeploymentMarkerTagIAPO39
+  GraphqlToLambdaResolverAccessRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          Effect: Allow
+          Principal:
+            Service: appsync.amazonaws.com
+          Action: sts:AssumeRole
+      RoleName: !Sub ${AWS::StackName}-Graphql-to-LambdaRes
+      Policies:
+        - PolicyName: Access
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource: !GetAtt LambdaResolver.Arn
+    DependsOn: DeploymentMarkerTagIAPO39
+  GraphqlQueryallPostsResolver:
+    Type: AWS::AppSync::Resolver
+    Properties:
+      TypeName: Query
+      DataSourceName: !GetAtt GraphqlToLambdaResolverDataSource.Name
+      RequestMappingTemplateS3Location: Graphql/Query-allPosts-request.vm
+      ResponseMappingTemplateS3Location: Graphql/Query-allPosts-response.vm
+      ApiId: !GetAtt Graphql.ApiId
+      FieldName: allPosts
+    DependsOn: [GraphqlSchema, DeploymentMarkerTagIAPO39]
+  GraphqlMutationaddPostResolver:
+    Type: AWS::AppSync::Resolver
+    Properties:
+      TypeName: Mutation
+      DataSourceName: !GetAtt GraphqlToLambdaResolverDataSource.Name
+      RequestMappingTemplateS3Location: Graphql/Mutation-addPost-request.vm
+      ResponseMappingTemplateS3Location: Graphql/Mutation-addPost-response.vm
+      ApiId: !GetAtt Graphql.ApiId
+      FieldName: addPost
+    DependsOn: [GraphqlSchema, DeploymentMarkerTagIAPO39]
+  DeploymentMarkerTagIAPO39:
+    Type: AWS::CloudFormation::WaitConditionHandle
+# Parameters:
+  # StackTagName:
+  #   Type: String
+  #   Description: Stack Name (injected by Stackery at deployment time)
+  #   Default: sam-test
+  # EnvironmentTagName:
+  #   Type: String
+  #   Description: Environment Name (injected by Stackery at deployment time)
+  #   Default: development
+# Outputs:
+#   DeploymentHistoryTag:
+#     Description: 'Stackery Deployment History Tag'
+#     Value: IAPO39
